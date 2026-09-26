@@ -108,6 +108,7 @@ Usage:
   esh --exec <english>       translate, then run the command (asks first)
   esh --exec --yes <english> translate and run without asking
   esh setup                  choose or change the LLM provider and model
+  esh shell-init [shell]     print shell integration for bash, zsh, or fish
   esh history                list previously translated commands
   esh --clear <english>      remove an entry from the history
   esh --help                 show this help
@@ -134,6 +135,88 @@ $ esh setup
 ```
 
 This overwrites the stored configuration and credentials. No files need to be deleted.
+
+### Shell integration
+
+`esh --exec` runs the command in a **child process**. That is fine for ordinary commands, but commands that change your shell's own state — `cd`, `export`, `source`, `alias`, `umask` — only affect that child, so they have no lasting effect:
+
+```bash
+$ esh -x -y "goto home"
+cd ~
+# ...but you are still in the same directory
+```
+
+A child process can never change its parent shell's working directory, so this cannot be fixed inside `esh` itself. The fix is a small shell function that evaluates `--exec` commands in your *current* shell. Load it from your shell's startup file:
+
+```bash
+# bash (~/.bashrc) or zsh (~/.zshrc)
+eval "$(esh shell-init zsh)"    # or: esh shell-init bash
+```
+
+```fish
+# fish (~/.config/fish/config.fish)
+esh shell-init fish | source
+```
+
+The snippet calls `esh` by absolute path, so it also works from a development build without installing (run this from the project root, or substitute the full path to your build):
+
+```bash
+eval "$("$PWD/target/debug/esh" shell-init zsh)"
+```
+
+> **Important:** the integration is a shell **function** named `esh`. It only takes effect when your shell resolves the command `esh` to that function. Launching the binary directly — `cargo run -- …` or `./target/debug/esh …` — bypasses it entirely, and `cd` will not persist. Invoke `esh` itself.
+
+With the integration loaded, `--exec` commands run in the current shell, so builtins take effect as if you had typed them:
+
+```bash
+$ esh -x -y "goto home"
+cd ~
+$ pwd
+/Users/you
+```
+
+Everything else is unchanged: without `--exec` the command is still only printed, subcommands (`setup`, `history`, `shell-init`) and `--help` pass straight through, and the confirmation prompt still applies unless you pass `-y`.
+
+> Because the integration evaluates commands in your current shell, they can change your environment (and affect it more broadly than a subshell would). Keep the confirmation prompt unless you are sure.
+
+#### Verify it took effect
+
+After loading the snippet, confirm your shell now has the function:
+
+```bash
+$ type esh
+esh is a shell function from /Users/you/.zshrc
+```
+
+If `type esh` prints a **path** (for example `/Users/you/.cargo/bin/esh`), the snippet is not loaded in this shell — reload your startup file (`source ~/.zshrc`) or start a new shell (`exec zsh`).
+
+Now check that a state change actually sticks. Call the function directly — not inside `$(...)` or a pipeline, which would run it in a subshell:
+
+```bash
+$ cd /
+$ esh -x -y "goto home"
+cd ~
+$ pwd
+/Users/you
+```
+
+As a control, the same command through the raw binary leaves you where you started, which confirms the function is what makes it work:
+
+```bash
+$ cd /
+$ /Users/you/code/esh/target/debug/esh -x -y "goto home"
+cd ~
+$ pwd
+/
+```
+
+To try the integration without editing your startup file, load it into the current shell first (use the absolute path to your build, or just `esh` if it is installed):
+
+```bash
+$ eval "$(/Users/you/code/esh/target/debug/esh shell-init zsh)"
+$ type esh
+esh is a shell function
+```
 
 ### Translate
 
@@ -236,7 +319,7 @@ flowchart TD
 - **Model listing** uses the provider's models endpoint (`GET /api/tags` for Ollama, `GET /models` for the others).
 - **Translation** uses the provider's generation endpoint (`POST /api/generate` for Ollama, `POST /chat/completions` for OpenAI-compatible services, `POST /messages` for Anthropic, and `POST /models/{model}:generateContent` for Gemini) with a strict prompt that instructs the model to reply with only the command. The response is trimmed and any markdown code fences or backticks are stripped before use.
 - **Auth** is provider-specific: `Authorization: Bearer <key>` for Ollama (when set) and OpenAI-compatible services, `x-api-key` plus `anthropic-version` for Anthropic, and `x-goog-api-key` for Gemini.
-- **Execution** (with `--exec`) shows the command, optionally confirms, runs it via the shell, and forwards its exit code. Without `--exec`, nothing is run.
+- **Execution** (with `--exec`) shows the command, optionally confirms, runs it via a child shell, and forwards its exit code. Without `--exec`, nothing is run. Commands that change shell state (`cd`, `export`, ...) need [shell integration](#shell-integration) to affect your current shell.
 - **History matching** compares trimmed, lowercased English text.
 
 ## Files and locations
@@ -302,6 +385,7 @@ The test suite covers CLI parsing (flags, subcommands, `--`, error cases), comma
 | `src/setup.rs` | Interactive configuration wizard |
 | `src/provider.rs` | Supported providers and their wire protocols |
 | `src/llm.rs` | Provider-agnostic model listing and translation |
+| `src/shellinit.rs` | Shell integration snippets (bash, zsh, fish) |
 | `src/config.rs` | Settings load/save |
 | `src/history.rs` | Translation history store |
 | `src/fsutil.rs` | Path resolution and private file writes |
@@ -309,6 +393,17 @@ The test suite covers CLI parsing (flags, subcommands, `--`, error cases), comma
 | `docs/requirements/` | Requirements documents |
 
 ## Troubleshooting
+
+**`esh -x "goto home"` prints `cd ~` but doesn't change directory**
+`cd` is a shell builtin and `esh` runs commands in a child process, which cannot change your shell's directory (the same is true of `export`, `source`, `alias`, and `umask`). Load the [shell integration](#shell-integration) so `--exec` evaluates commands in the current shell.
+
+**`cd` still doesn't stick after loading the integration**
+Make sure you are running `esh` itself, not the binary directly. `cargo run -- -x -y …` and `./target/debug/esh -x -y …` bypass the shell function. If you run from a development checkout, point the integration at your build:
+
+```bash
+eval "$("$PWD/target/debug/esh" shell-init zsh)"
+type esh    # should say: esh is a shell function
+```
 
 **"could not reach the server"**
 Check that the provider is running and the server URL is correct. For local Ollama, `curl http://localhost:11434/api/tags` should return JSON.
@@ -331,6 +426,7 @@ Verify the server URL and that the provider exposes at least one model. If it ca
 ## Limitations and roadmap
 
 - Execution is opt-in (`--exec`) and never happens in the default, print-only mode.
+- `--exec` runs commands in a child shell, so shell-state changes (`cd`, `export`, ...) do not persist unless the [shell integration](#shell-integration) is loaded.
 - `esh` does not attempt to judge whether a generated command is safe; with `--exec` it relies on your confirmation, and with `--exec --yes` it runs the command as-is.
 - The provider is chosen globally, not per request; switching providers means re-running `esh setup`.
 - Model listing shows whatever the provider returns, including non-chat models for some providers.

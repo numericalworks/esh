@@ -6,6 +6,7 @@ mod interactive;
 mod llm;
 mod provider;
 mod setup;
+mod shellinit;
 
 use std::env;
 use std::process::{Command, ExitCode};
@@ -27,6 +28,7 @@ enum Cli {
     Help,
     Version,
     Setup,
+    ShellInit(Option<String>),
     History,
     Clear(String),
     Translate {
@@ -49,6 +51,10 @@ fn run() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Cli::Setup => run_setup(),
+        Cli::ShellInit(shell) => {
+            println!("{}", shellinit::snippet(shell.as_deref())?);
+            Ok(ExitCode::SUCCESS)
+        }
         Cli::History => show_history(),
         Cli::Clear(english) => clear(&english),
         Cli::Translate { english, exec, yes } => translate(&english, exec, yes),
@@ -63,6 +69,7 @@ fn parse_args(args: &[String]) -> Result<Cli> {
     // Subcommands must come first.
     match args[0].as_str() {
         "setup" => return Ok(Cli::Setup),
+        "shell-init" => return Ok(Cli::ShellInit(args.get(1).cloned())),
         "history" => return Ok(Cli::History),
         "--clear" => {
             if args.len() < 2 {
@@ -238,6 +245,7 @@ fn usage() -> &'static str {
      esh --exec <english>       translate, then run the command (asks first)\n  \
      esh --exec --yes <english> translate and run without asking\n  \
      esh setup                  choose or change the LLM provider and model\n  \
+     esh shell-init [shell]     print shell integration for bash, zsh, or fish\n  \
      esh history                list previously translated commands\n  \
      esh --clear <english>      remove an entry from the history\n  \
      esh --help                 show this help\n  \
@@ -316,6 +324,14 @@ mod tests {
     #[test]
     fn parses_subcommands() {
         assert_eq!(parse_args(&args(&["setup"])).unwrap(), Cli::Setup);
+        assert_eq!(
+            parse_args(&args(&["shell-init"])).unwrap(),
+            Cli::ShellInit(None)
+        );
+        assert_eq!(
+            parse_args(&args(&["shell-init", "zsh"])).unwrap(),
+            Cli::ShellInit(Some("zsh".to_string()))
+        );
         assert_eq!(parse_args(&args(&["history"])).unwrap(), Cli::History);
         assert_eq!(
             parse_args(&args(&["--clear", "list", "files"])).unwrap(),
