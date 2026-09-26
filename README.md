@@ -14,7 +14,7 @@ $ $(esh "show the ten largest files under this directory")
 $ echo "$(esh "list all files in the current directory with their sizes")"
 ```
 
-`esh` does **not** execute the command for you — it only translates. You stay in control of what runs.
+By default `esh` only translates: it prints the command and leaves the decision to run it up to you. Pass `--exec` when you want `esh` to run it — it shows the command and asks for confirmation first.
 
 ## Why
 
@@ -75,12 +75,25 @@ To reconfigure, delete the configuration files (see [Files and locations](#files
 
 ```
 Usage:
-  esh <english>          translate English into a shell command
-  esh history            list previously translated commands
-  esh --clear <english>  remove an entry from the history
-  esh --help             show this help
-  esh --version          show the version
+  esh <english>              translate English into a shell command
+  esh --exec <english>       translate, then run the command (asks first)
+  esh --exec --yes <english> translate and run without asking
+  esh history                list previously translated commands
+  esh --clear <english>      remove an entry from the history
+  esh --help                 show this help
+  esh --version              show the version
 ```
+
+### Options
+
+| Flag | Meaning |
+|---|---|
+| `-x`, `--exec` | Run the translated command instead of only printing it |
+| `-y`, `--yes` | Skip the confirmation prompt (requires `--exec`) |
+| `-h`, `--help` | Show help |
+| `-V`, `--version` | Show the version |
+
+Flags may appear before or after the English text. Use `--` to treat everything after it as English text, so a request may begin with a dash.
 
 ### Translate
 
@@ -95,6 +108,34 @@ Multiple arguments are joined with spaces, so these are equivalent:
 $ esh "list files by size"
 $ esh list files by size
 ```
+
+### Run the translated command
+
+Pass `-x`/`--exec` to run the command instead of only printing it. Because a generated command could be destructive, `esh` shows it and asks for confirmation first:
+
+```bash
+$ esh --exec "show the current directory in long form"
+ls -la
+Run this command? [y/N] y
+total 24
+...
+```
+
+Press Enter, or answer anything other than `y`/`yes`, to abort without running anything.
+
+Skip the prompt with `-y`/`--yes` (useful in scripts). `--yes` requires `--exec`:
+
+```bash
+$ esh --exec --yes "show the current directory in long form"
+```
+
+In exec mode the command and the confirmation prompt are written to **stderr**, so **stdout** carries only the executed command's output. The executed command's exit code becomes `esh`'s exit code, so it composes like any other command:
+
+```bash
+$ esh -x -y "run the test suite" && echo "tests passed"
+```
+
+The command runs through the system shell (`sh -c` on Unix, `cmd /C` on Windows), so pipes, redirects, and globbing behave as they would if you typed the command yourself.
 
 ### Caching and history
 
@@ -135,22 +176,27 @@ esh: no history entry found for 'list all files in the current directory with th
 
 ```mermaid
 flowchart TD
-    A["esh <english>"] --> B{Settings on disk?}
+    A["esh [--exec] <english>"] --> B{Settings on disk?}
     B -- no --> C[First-launch wizard]
     C --> D[Save config + credentials]
     D --> E
     B -- yes --> E[Open history store]
     E --> F{Already translated?}
-    F -- yes --> G[Print cached command]
+    F -- yes --> G[Use cached command]
     F -- no --> H["POST /api/generate"]
     H --> I[Strip whitespace and code fences]
     I --> J[Save to history]
-    J --> K[Print command]
+    J --> G
+    G --> K{--exec?}
+    K -- no --> L[Print command to stdout]
+    K -- yes --> M[Show command, confirm, run via sh -c]
+    M --> N[Propagate the command's exit code]
 ```
 
 - **Model listing** uses `GET /api/tags`.
 - **Translation** uses `POST /api/generate` with `stream: false` and a strict prompt that instructs the model to reply with only the command. The response is trimmed and any markdown code fences or backticks are stripped before use.
 - **Auth** adds `Authorization: Bearer <key>` when an API key is configured, and omits the header otherwise.
+- **Execution** (with `--exec`) shows the command, optionally confirms, runs it via `sh -c`, and forwards its exit code. Without `--exec`, nothing is run.
 - **History matching** compares trimmed, lowercased English text.
 
 ## Files and locations
@@ -204,13 +250,14 @@ cargo test             # run the test suite
 cargo clippy --all-targets
 ```
 
-The test suite covers configuration round-trips and file permissions, history find/add/replace/remove semantics, prompt construction and output sanitizing, and the Ollama client (model listing, Bearer auth presence/absence, translation, empty responses, and HTTP error handling) against an in-process mock server.
+The test suite covers CLI parsing (flags, subcommands, `--`, error cases), command execution and exit-code propagation, configuration round-trips and file permissions, history find/add/replace/remove semantics, prompt construction and output sanitizing, and the Ollama client (model listing, Bearer auth presence/absence, translation, empty responses, and HTTP error handling) against an in-process mock server.
 
 ### Project layout
 
 | Path | Contents |
 |---|---|
-| `src/main.rs` | CLI parsing and command dispatch |
+| `src/main.rs` | CLI parsing, command dispatch, and command execution |
+| `src/interactive.rs` | Prompt and confirmation helpers |
 | `src/setup.rs` | Interactive first-launch wizard |
 | `src/config.rs` | Settings load/save |
 | `src/ollama.rs` | Ollama HTTP client and prompt handling |
@@ -235,7 +282,8 @@ Verify the server URL and that at least one model is pulled, e.g. `ollama pull l
 
 ## Limitations and roadmap
 
-- `esh` does not execute translated commands.
+- Execution is opt-in (`--exec`) and never happens in the default, print-only mode.
+- `esh` does not attempt to judge whether a generated command is safe; with `--exec` it relies on your confirmation, and with `--exec --yes` it runs the command as-is.
 - History entries are matched by exact English text (case/whitespace-insensitive); there is no fuzzy matching.
 - The API key is protected by file permissions rather than an OS keychain.
 

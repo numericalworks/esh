@@ -1,7 +1,6 @@
-use std::io::{self, Write};
-
 use crate::config::{Settings, SettingsStore};
 use crate::error::{Error, Result};
+use crate::interactive;
 use crate::ollama;
 
 const DEFAULT_SERVER_URL: &str = "http://localhost:11434";
@@ -31,7 +30,7 @@ pub fn run(store: &SettingsStore) -> Result<Settings> {
             Err(error) => eprintln!("\nCould not fetch models: {error}"),
         }
 
-        if !confirm("Try again? [Y/n]: ")? {
+        if !interactive::confirm("Try again? [Y/n] ", true)? {
             return Err(Error::other(
                 "setup cancelled: no settings were saved",
             ));
@@ -41,7 +40,7 @@ pub fn run(store: &SettingsStore) -> Result<Settings> {
 }
 
 fn prompt_server_url() -> Result<String> {
-    let input = prompt(&format!("Ollama server URL [{DEFAULT_SERVER_URL}]: "))?;
+    let input = interactive::prompt(&format!("Ollama server URL [{DEFAULT_SERVER_URL}]: "))?;
     let input = input.trim();
     if input.is_empty() {
         Ok(DEFAULT_SERVER_URL.to_string())
@@ -67,7 +66,7 @@ fn choose_model(models: &[String]) -> Result<String> {
     }
 
     loop {
-        let input = prompt("Select a model [1]: ")?;
+        let input = interactive::prompt("Select a model [1]: ")?;
         let input = input.trim();
 
         if input.is_empty() {
@@ -85,18 +84,4 @@ fn choose_model(models: &[String]) -> Result<String> {
 
         eprintln!("Please enter a number between 1 and {}.", models.len());
     }
-}
-
-fn prompt(message: &str) -> Result<String> {
-    print!("{message}");
-    io::stdout().flush()?;
-    let mut line = String::new();
-    io::stdin().read_line(&mut line)?;
-    Ok(line.trim_end_matches(['\n', '\r']).to_string())
-}
-
-fn confirm(message: &str) -> Result<bool> {
-    let input = prompt(message)?;
-    let input = input.trim();
-    Ok(!input.eq_ignore_ascii_case("n") && !input.eq_ignore_ascii_case("no"))
 }
