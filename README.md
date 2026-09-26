@@ -1,6 +1,6 @@
 # esh
 
-`esh` translates plain English into shell commands using a large language model served by [Ollama](https://ollama.com). Ask for what you want, get the command back.
+`esh` translates plain English into shell commands using a large language model. Ask for what you want, get the command back. It works with a local [Ollama](https://ollama.com) server and with hosted providers — OpenAI, Anthropic, Google Gemini, and any OpenAI-compatible service.
 
 ```bash
 $ esh "list all files in the current directory with their sizes"
@@ -18,7 +18,8 @@ By default `esh` only translates: it prints the command and leaves the decision 
 
 ## Why
 
-- **Local-first.** Works with a local Ollama server out of the box; point it at a remote or hosted endpoint if you prefer.
+- **Provider-agnostic.** Use a local Ollama server, OpenAI, Anthropic, Google Gemini, or any OpenAI-compatible service — and switch with one command.
+- **Local-first.** The default provider is a local Ollama server, so nothing leaves your machine unless you choose a hosted provider.
 - **Remembers.** Repeated requests are served from a local history, so the model is not called twice for the same English text.
 - **Composable.** Only the command is printed, so it can be piped, substituted, or captured.
 
@@ -43,8 +44,29 @@ cargo build --release
 
 ### Requirements
 
-- A reachable Ollama server. By default `esh` assumes `http://localhost:11434`.
-- An API key only if your endpoint requires one (for example a hosted or proxied Ollama server). Local Ollama usually needs none.
+- A reachable LLM provider (see [Providers](#providers)). The default is a local Ollama server at `http://localhost:11434`.
+- An API key for hosted providers. Local Ollama and most self-hosted servers need none.
+- Network access to the provider's API host, unless you run the model locally.
+
+## Providers
+
+`esh` speaks four wire protocols. Pick a provider during setup, or change it later with [`esh setup`](#switching-providers).
+
+| Provider | `provider` id | Default base URL | API key |
+|---|---|---|---|
+| Ollama | `ollama` | `http://localhost:11434` | optional |
+| OpenAI | `openai` | `https://api.openai.com/v1` | required |
+| Anthropic (Claude) | `anthropic` | `https://api.anthropic.com/v1` | required |
+| Google Gemini | `gemini` | `https://generativelanguage.googleapis.com/v1beta` | required |
+| Groq | `groq` | `https://api.groq.com/openai/v1` | required |
+| Mistral | `mistral` | `https://api.mistral.ai/v1` | required |
+| DeepSeek | `deepseek` | `https://api.deepseek.com/v1` | required |
+| xAI (Grok) | `xai` | `https://api.x.ai/v1` | required |
+| OpenRouter | `openrouter` | `https://openrouter.ai/api/v1` | required |
+| Together AI | `together` | `https://api.together.xyz/v1` | required |
+| Custom (OpenAI-compatible) | `custom` | you supply | optional |
+
+The OpenAI-compatible entries all speak the same protocol, so any service exposing an OpenAI-style API works — LM Studio, llama.cpp's server, vLLM, and others. Choose **Custom** and enter its base URL.
 
 ## First launch
 
@@ -53,23 +75,30 @@ The first time you run `esh`, it walks you through setup:
 ```
 Welcome to esh! Let's set things up.
 
-Ollama server URL [http://localhost:11434]: 
-Ollama API key [None]: 
+Choose your LLM provider:
+  1. Ollama  (local or self-hosted, no API key needed)
+  2. OpenAI
+  3. Anthropic (Claude)
+  ...
+Provider [1]: 1
+Server URL [http://localhost:11434]: 
+API key (optional) [None]: 
 Available models:
   1. codellama
   2. llama3:latest
-Select a model [1]: 2
+Select a model (number or name) [1]: 2
 
-Settings saved. You're ready to go.
+Settings saved: provider 'ollama', model 'llama3:latest'.
 ```
 
-1. **Server URL** — press Enter to accept `http://localhost:11434`, or type your endpoint.
-2. **API key** — input is hidden. Press Enter for none. If provided, it is sent as `Authorization: Bearer <key>` on every request.
-3. **Model** — `esh` lists the models available on your server (sorted). Press Enter to pick the first, or type a number.
+1. **Provider** — pick a number, or type a provider id. Enter selects Ollama.
+2. **Server URL** — press Enter to accept the provider's default, or type your own (required for `custom`).
+3. **API key** — input is hidden. Hosted providers require a key; press Enter for none where the provider allows it.
+4. **Model** — `esh` lists the models the provider reports. Press Enter for the first, type a number, or type a model name directly.
 
-If the server can't be reached or reports no models, `esh` shows the error and asks whether to retry. Setup only writes files once it succeeds.
+If the models cannot be listed (for example the endpoint does not expose a list), `esh` asks you to type a model name. Press Enter with no model to start the wizard over.
 
-To reconfigure, delete the configuration files (see [Files and locations](#files-and-locations)) and run `esh` again.
+Setup only writes files once it has a provider, a URL, and a model.
 
 ## Usage
 
@@ -78,6 +107,7 @@ Usage:
   esh <english>              translate English into a shell command
   esh --exec <english>       translate, then run the command (asks first)
   esh --exec --yes <english> translate and run without asking
+  esh setup                  choose or change the LLM provider and model
   esh history                list previously translated commands
   esh --clear <english>      remove an entry from the history
   esh --help                 show this help
@@ -94,6 +124,16 @@ Usage:
 | `-V`, `--version` | Show the version |
 
 Flags may appear before or after the English text. Use `--` to treat everything after it as English text, so a request may begin with a dash.
+
+### Switching providers
+
+Run the wizard at any time to change the provider, server URL, API key, or model:
+
+```bash
+$ esh setup
+```
+
+This overwrites the stored configuration and credentials. No files need to be deleted.
 
 ### Translate
 
@@ -177,13 +217,13 @@ esh: no history entry found for 'list all files in the current directory with th
 ```mermaid
 flowchart TD
     A["esh [--exec] <english>"] --> B{Settings on disk?}
-    B -- no --> C[First-launch wizard]
+    B -- no --> C[Setup wizard: provider, URL, key, model]
     C --> D[Save config + credentials]
     D --> E
     B -- yes --> E[Open history store]
     E --> F{Already translated?}
     F -- yes --> G[Use cached command]
-    F -- no --> H["POST /api/generate"]
+    F -- no --> H["Call the configured provider"]
     H --> I[Strip whitespace and code fences]
     I --> J[Save to history]
     J --> G
@@ -193,10 +233,10 @@ flowchart TD
     M --> N[Propagate the command's exit code]
 ```
 
-- **Model listing** uses `GET /api/tags`.
-- **Translation** uses `POST /api/generate` with `stream: false` and a strict prompt that instructs the model to reply with only the command. The response is trimmed and any markdown code fences or backticks are stripped before use.
-- **Auth** adds `Authorization: Bearer <key>` when an API key is configured, and omits the header otherwise.
-- **Execution** (with `--exec`) shows the command, optionally confirms, runs it via `sh -c`, and forwards its exit code. Without `--exec`, nothing is run.
+- **Model listing** uses the provider's models endpoint (`GET /api/tags` for Ollama, `GET /models` for the others).
+- **Translation** uses the provider's generation endpoint (`POST /api/generate` for Ollama, `POST /chat/completions` for OpenAI-compatible services, `POST /messages` for Anthropic, and `POST /models/{model}:generateContent` for Gemini) with a strict prompt that instructs the model to reply with only the command. The response is trimmed and any markdown code fences or backticks are stripped before use.
+- **Auth** is provider-specific: `Authorization: Bearer <key>` for Ollama (when set) and OpenAI-compatible services, `x-api-key` plus `anthropic-version` for Anthropic, and `x-goog-api-key` for Gemini.
+- **Execution** (with `--exec`) shows the command, optionally confirms, runs it via the shell, and forwards its exit code. Without `--exec`, nothing is run.
 - **History matching** compares trimmed, lowercased English text.
 
 ## Files and locations
@@ -205,7 +245,7 @@ flowchart TD
 
 | Purpose | Default location | Override |
 |---|---|---|
-| Server URL and model | `~/.config/esh/config.json` | `ESH_CONFIG_HOME`, `XDG_CONFIG_HOME` |
+| Provider, server URL, and model | `~/.config/esh/config.json` | `ESH_CONFIG_HOME`, `XDG_CONFIG_HOME` |
 | API key | `~/.config/esh/credentials.json` | `ESH_CONFIG_HOME`, `XDG_CONFIG_HOME` |
 | Translation history | `~/.local/share/esh/history.json` | `ESH_DATA_HOME`, `XDG_DATA_HOME` |
 
@@ -216,12 +256,13 @@ The configuration directory is created with mode `0700` and its files with mode 
 <details>
 <summary>Example configuration files</summary>
 
-`config.json`:
+`config.json` for OpenAI (a missing `provider` field defaults to `ollama`, so older configs keep working):
 
 ```json
 {
-  "server_url": "http://localhost:11434",
-  "model": "llama3:latest"
+  "provider": "openai",
+  "server_url": "https://api.openai.com/v1",
+  "model": "gpt-4o-mini"
 }
 ```
 
@@ -238,8 +279,8 @@ The configuration directory is created with mode `0700` and its files with mode 
 ## Security notes
 
 - The API key is stored in a separate `credentials.json` with owner-only permissions (`0600`), and the containing directory is `0700`.
-- This is permission-based protection, **not** OS-keychain encryption. On a shared machine, anyone who can read your user's files can read the key. If you need stronger protection, run `esh` without an API key against a local server, or restrict access to your account.
-- The API key is sent only to the configured server URL.
+- This is permission-based protection, **not** OS-keychain encryption. On a shared machine, anyone who can read your user's files can read the key. If you need stronger protection, use a local provider without an API key, or restrict access to your account.
+- The API key is sent only to the configured provider's base URL.
 
 ## Development
 
@@ -250,7 +291,7 @@ cargo test             # run the test suite
 cargo clippy --all-targets
 ```
 
-The test suite covers CLI parsing (flags, subcommands, `--`, error cases), command execution and exit-code propagation, configuration round-trips and file permissions, history find/add/replace/remove semantics, prompt construction and output sanitizing, and the Ollama client (model listing, Bearer auth presence/absence, translation, empty responses, and HTTP error handling) against an in-process mock server.
+The test suite covers CLI parsing (flags, subcommands, `--`, error cases), command execution and exit-code propagation, configuration round-trips (including provider defaults and validation) and file permissions, history find/add/replace/remove semantics, prompt construction and output sanitizing, and the LLM client for every protocol (model listing, auth headers, translation, empty responses, and HTTP error handling) against an in-process mock server.
 
 ### Project layout
 
@@ -258,9 +299,10 @@ The test suite covers CLI parsing (flags, subcommands, `--`, error cases), comma
 |---|---|
 | `src/main.rs` | CLI parsing, command dispatch, and command execution |
 | `src/interactive.rs` | Prompt and confirmation helpers |
-| `src/setup.rs` | Interactive first-launch wizard |
+| `src/setup.rs` | Interactive configuration wizard |
+| `src/provider.rs` | Supported providers and their wire protocols |
+| `src/llm.rs` | Provider-agnostic model listing and translation |
 | `src/config.rs` | Settings load/save |
-| `src/ollama.rs` | Ollama HTTP client and prompt handling |
 | `src/history.rs` | Translation history store |
 | `src/fsutil.rs` | Path resolution and private file writes |
 | `src/error.rs` | Error type |
@@ -268,22 +310,30 @@ The test suite covers CLI parsing (flags, subcommands, `--`, error cases), comma
 
 ## Troubleshooting
 
-**"could not reach the Ollama server"**
-Check that Ollama is running and that the server URL is correct. For a local install, `curl http://localhost:11434/api/tags` should return JSON.
+**"could not reach the server"**
+Check that the provider is running and the server URL is correct. For local Ollama, `curl http://localhost:11434/api/tags` should return JSON.
 
 **"the server returned HTTP 401" / `403`**
-The endpoint requires an API key. Re-run setup with a valid key (delete the config files first to re-trigger the wizard).
+The endpoint requires a valid API key. Run `esh setup` and enter a key for the selected provider.
+
+**"Anthropic requires an API key" / "Google Gemini requires an API key"**
+These providers cannot be used without a key. Re-run `esh setup` and provide one.
+
+**"unknown provider ... in the configuration"**
+The config references a provider id `esh` does not know. Run `esh setup` to pick a valid provider.
 
 **The model returns a bad or multi-line answer**
 `esh` uses a strict prompt and strips code fences, but a small or poorly suited model can still produce extra text. Prefer a capable code-oriented model in setup.
 
 **Setup keeps failing**
-Verify the server URL and that at least one model is pulled, e.g. `ollama pull llama3`. You can also set the URL and API key non-interactively by writing the config files described above.
+Verify the server URL and that the provider exposes at least one model. If it cannot list models, type a model name directly when prompted. You can also set things up non-interactively by writing the config files described above.
 
 ## Limitations and roadmap
 
 - Execution is opt-in (`--exec`) and never happens in the default, print-only mode.
 - `esh` does not attempt to judge whether a generated command is safe; with `--exec` it relies on your confirmation, and with `--exec --yes` it runs the command as-is.
+- The provider is chosen globally, not per request; switching providers means re-running `esh setup`.
+- Model listing shows whatever the provider returns, including non-chat models for some providers.
 - History entries are matched by exact English text (case/whitespace-insensitive); there is no fuzzy matching.
 - The API key is protected by file permissions rather than an OS keychain.
 

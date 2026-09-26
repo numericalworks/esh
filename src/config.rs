@@ -3,12 +3,15 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::fsutil;
+use crate::provider;
 
-/// Resolved settings used to talk to the Ollama server.
+/// Resolved settings used to talk to the configured LLM provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
+    /// Provider identifier, e.g. `ollama` or `openai`.
+    pub provider: String,
     pub server_url: String,
     pub model: String,
     pub api_key: Option<String>,
@@ -16,8 +19,14 @@ pub struct Settings {
 
 #[derive(Serialize, Deserialize)]
 struct ConfigFile {
+    #[serde(default = "default_provider")]
+    provider: String,
     server_url: String,
     model: String,
+}
+
+fn default_provider() -> String {
+    provider::DEFAULT_ID.to_string()
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -67,7 +76,15 @@ impl SettingsStore {
             return Ok(None);
         }
 
+        if provider::lookup(&config.provider).is_none() {
+            return Err(Error::other(format!(
+                "unknown provider '{}' in the configuration; run `esh setup` to reconfigure",
+                config.provider
+            )));
+        }
+
         Ok(Some(Settings {
+            provider: config.provider,
             server_url: config.server_url,
             model: config.model,
             api_key,
@@ -76,6 +93,7 @@ impl SettingsStore {
 
     pub fn save(&self, settings: &Settings) -> Result<()> {
         let config = ConfigFile {
+            provider: settings.provider.clone(),
             server_url: settings.server_url.clone(),
             model: settings.model.clone(),
         };
@@ -110,6 +128,15 @@ mod tests {
         dir
     }
 
+    fn settings(provider: &str) -> Settings {
+        Settings {
+            provider: provider.to_string(),
+            server_url: "http://localhost:11434".to_string(),
+            model: "llama3".to_string(),
+            api_key: Some("secret".to_string()),
+        }
+    }
+
     #[test]
     fn reports_missing_configuration() {
         let dir = temp_dir("missing");
@@ -122,11 +149,7 @@ mod tests {
     fn round_trips_settings_including_api_key() {
         let dir = temp_dir("roundtrip");
         let store = SettingsStore::new(dir.join("config.json"), dir.join("credentials.json"));
-        let settings = Settings {
-            server_url: "http://localhost:11434".to_string(),
-            model: "llama3".to_string(),
-            api_key: Some("secret".to_string()),
-        };
+        let settings = settings("openai");
 
         store.save(&settings).unwrap();
 
@@ -139,6 +162,7 @@ mod tests {
         let dir = temp_dir("nokey");
         let store = SettingsStore::new(dir.join("config.json"), dir.join("credentials.json"));
         let settings = Settings {
+            provider: "ollama".to_string(),
             server_url: "http://localhost:11434".to_string(),
             model: "llama3".to_string(),
             api_key: None,
@@ -150,6 +174,39 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
+    #[test]
+    fn config_without_provider_defaults_to_ollama() {
+        let dir = temp_dir("legacy");
+        fs::write(
+            dir.join("config.json"),
+            r#"{"server_url":"http://localhost:11434","model":"llama3"}"#,
+        )
+        .unwrap();
+        let store = SettingsStore::new(dir.join("config.json"), dir.join("credentials.json"));
+
+        let settings = store.load().unwrap().unwrap();
+
+        assert_eq!(settings.provider, "ollama");
+        assert_eq!(settings.model, "llama3");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn unknown_provider_is_an_error() {
+        let dir = temp_dir("unknown");
+        fs::write(
+            dir.join("config.json"),
+            r#"{"provider":"nope","server_url":"http://x","model":"m"}"#,
+        )
+        .unwrap();
+        let store = SettingsStore::new(dir.join("config.json"), dir.join("credentials.json"));
+
+        let error = store.load().unwrap_err();
+
+        assert!(error.to_string().contains("unknown provider"), "was: {error}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
     #[cfg(unix)]
     #[test]
     fn stored_files_are_private() {
@@ -157,11 +214,7 @@ mod tests {
 
         let dir = temp_dir("perms");
         let store = SettingsStore::new(dir.join("config.json"), dir.join("credentials.json"));
-        let settings = Settings {
-            server_url: "http://localhost:11434".to_string(),
-            model: "llama3".to_string(),
-            api_key: Some("secret".to_string()),
-        };
+        let settings = settings("openai");
 
         store.save(&settings).unwrap();
 

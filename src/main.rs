@@ -3,7 +3,8 @@ mod error;
 mod fsutil;
 mod history;
 mod interactive;
-mod ollama;
+mod llm;
+mod provider;
 mod setup;
 
 use std::env;
@@ -25,6 +26,7 @@ fn main() -> ExitCode {
 enum Cli {
     Help,
     Version,
+    Setup,
     History,
     Clear(String),
     Translate {
@@ -46,6 +48,7 @@ fn run() -> Result<ExitCode> {
             println!("esh {}", env!("CARGO_PKG_VERSION"));
             Ok(ExitCode::SUCCESS)
         }
+        Cli::Setup => run_setup(),
         Cli::History => show_history(),
         Cli::Clear(english) => clear(&english),
         Cli::Translate { english, exec, yes } => translate(&english, exec, yes),
@@ -59,6 +62,7 @@ fn parse_args(args: &[String]) -> Result<Cli> {
 
     // Subcommands must come first.
     match args[0].as_str() {
+        "setup" => return Ok(Cli::Setup),
         "history" => return Ok(Cli::History),
         "--clear" => {
             if args.len() < 2 {
@@ -124,7 +128,7 @@ fn translate(english: &str, exec: bool, yes: bool) -> Result<ExitCode> {
     let command = match store.find(english) {
         Some(command) => command,
         None => {
-            let command = ollama::translate(&settings, english)?;
+            let command = llm::translate(&settings, english)?;
             store.add(english, &command)?;
             command
         }
@@ -188,6 +192,12 @@ fn shell_command(command: &str) -> Command {
     }
 }
 
+fn run_setup() -> Result<ExitCode> {
+    let store = config::SettingsStore::from_env()?;
+    setup::run(&store)?;
+    Ok(ExitCode::SUCCESS)
+}
+
 fn show_history() -> Result<ExitCode> {
     let store = history::Store::open(&fsutil::history_path()?)?;
 
@@ -227,6 +237,7 @@ fn usage() -> &'static str {
      esh <english>              translate English into a shell command\n  \
      esh --exec <english>       translate, then run the command (asks first)\n  \
      esh --exec --yes <english> translate and run without asking\n  \
+     esh setup                  choose or change the LLM provider and model\n  \
      esh history                list previously translated commands\n  \
      esh --clear <english>      remove an entry from the history\n  \
      esh --help                 show this help\n  \
@@ -304,6 +315,7 @@ mod tests {
 
     #[test]
     fn parses_subcommands() {
+        assert_eq!(parse_args(&args(&["setup"])).unwrap(), Cli::Setup);
         assert_eq!(parse_args(&args(&["history"])).unwrap(), Cli::History);
         assert_eq!(
             parse_args(&args(&["--clear", "list", "files"])).unwrap(),

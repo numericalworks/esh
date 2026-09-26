@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 /// Prompts on stderr and reads one line from stdin.
 ///
@@ -10,7 +10,9 @@ pub fn prompt(message: &str) -> Result<String> {
     eprint!("{message}");
     io::stderr().flush()?;
     let mut line = String::new();
-    io::stdin().read_line(&mut line)?;
+    if io::stdin().read_line(&mut line)? == 0 {
+        return Err(Error::other("input closed"));
+    }
     Ok(line.trim_end_matches(['\n', '\r']).to_string())
 }
 
