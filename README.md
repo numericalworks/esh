@@ -437,4 +437,8 @@ Verify the server URL and that the provider exposes at least one model. If it ca
 
 ## License
 
-Not yet specified.
+GPL-V3.0 or later.
+
+## Donate
+
+<https://paypal.me/mindaslab>
