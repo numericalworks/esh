@@ -1,5 +1,7 @@
 # esh
 
+![](esh.png)
+
 `esh` translates plain English into shell commands using a large language model. Ask for what you want, get the command back. It works with a local [Ollama](https://ollama.com) server and with hosted providers — OpenAI, Anthropic, Google Gemini, and any OpenAI-compatible service.
 
 ```bash
