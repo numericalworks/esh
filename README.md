@@ -50,6 +50,17 @@ cargo build --release
 - An API key for hosted providers. Local Ollama and most self-hosted servers need none.
 - Network access to the provider's API host, unless you run the model locally.
 
+## Releases
+
+Prebuilt binaries are published on the [Releases page](https://github.com/numericalworks/esh/releases).
+
+| Platform | Status |
+|---|---|
+| macOS — Apple silicon (M-series) | **Available** |
+| Debian | Coming soon |
+
+Download the latest build for your platform from <https://github.com/numericalworks/esh/releases>. On other platforms — or to build the newest code yourself — use the [From source](#from-source) instructions above, then follow [Shell integration](#shell-integration) to wire `esh` into your shell.
+
 ## Providers
 
 `esh` speaks four wire protocols. Pick a provider during setup, or change it later with [`esh setup`](#switching-providers).
