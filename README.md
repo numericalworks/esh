@@ -18,6 +18,8 @@ $ echo "$(esh "list all files in the current directory with their sizes")"
 
 By default `esh` only translates: it prints the command and leaves the decision to run it up to you. Pass `--exec` when you want `esh` to run it — it shows the command and asks for confirmation first.
 
+![](esh.gif)
+
 ## Why
 
 - **Provider-agnostic.** Use a local Ollama server, OpenAI, Anthropic, Google Gemini, or any OpenAI-compatible service — and switch with one command.
