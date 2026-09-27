@@ -27,6 +27,42 @@ By default `esh` only translates: it prints the command and leaves the decision 
 
 ## Installation
 
+### On Mac M series (Apple Silicon)
+
+```bash
+$ wget https://github.com/numericalworks/esh/releases/download/0.0.0/esh_apple_m
+$ chmod +x esh_apple_m
+$ sudo mv esh_apple_m /usr/local/bin/esh
+```
+
+In `.zshrc` add this: 
+
+```bash
+eval "$("/usr/local/bin/esh" shell-init zsh)"
+```
+
+Restart your shell or run `source ~/.zshrc` to apply the changes.
+
+Then run `esh setup`
+
+### Debian (Ubuntu) X86_64
+
+```bash
+$ wget https://github.com/numericalworks/esh/releases/download/0.0.0/esh_X86_64_debain_or_ubuntu
+$ chmod +x esh_X86_64_debain_or_ubuntu
+$ sudo mv esh_X86_64_debain_or_ubuntu /usr/local/bin/esh
+```
+
+In `.bashrc` add this: 
+
+```bash
+eval "$("/usr/local/bin/esh" shell-init bash)"
+```
+
+Restart your shell or run `source ~/.bashrc` to apply the changes.
+
+Then run `esh setup`
+
 ### From source
 
 Requires [Rust](https://www.rust-lang.org/tools/install) 1.85 or newer (the crate uses the 2024 edition).
@@ -57,7 +93,8 @@ Prebuilt binaries are published on the [Releases page](https://github.com/numeri
 | Platform | Status |
 |---|---|
 | macOS — Apple silicon (M-series) | **Available** |
-| Debian | Coming soon |
+| Debian (Ubuntu) GNU-Linux — x86_64 (64-bit) | **Available** |
+
 
 Download the latest build for your platform from <https://github.com/numericalworks/esh/releases>. On other platforms — or to build the newest code yourself — use the [From source](#from-source) instructions above, then follow [Shell integration](#shell-integration) to wire `esh` into your shell.
 
